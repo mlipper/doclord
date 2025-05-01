@@ -21,7 +21,11 @@ form v2:
 import logging
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
+
+import pandas as pd
 from openpyxl.reader.excel import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -60,6 +64,26 @@ class Application:
     """Container for an application's contact information."""
     name: str
     team: list[Contact] = field(default_factory=list)
+    COLUMNS: ClassVar[list[str]] = ["application", "email", "name", "phone", "role"] 
+
+    def asrows(self):
+        rows = []
+        for c in self.team:
+            rows.append(
+                [
+                self.sstrip(self.name),
+                self.sstrip(c.email),
+                self.sstrip(c.name),
+                self.sstrip(f"{c.phone}"),
+                self.sstrip(c.role)
+                ]
+                )
+        return rows
+
+    def sstrip(self, string: str):
+        """Safe str.strip() in case str is None"""
+        return string.strip() if string is not None else None
+
 
 def _cval(ws: Worksheet, cell: str, default_value=None):
     if ws is None:
@@ -161,6 +185,22 @@ def _get_team(ws: Worksheet, form: str = FORM_V2):
             team_members.append(contact)
     return team_members
 
+def timestamp():
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+def _write_report(apps: list[Application], io: Path):
+    data = []
+    for app in apps:
+        #for contact in app.team:
+        #    logging.info("%s, %s, %s, %s, %s", app.name, contact.email, contact.name, contact.phone, contact.role)
+        for row in app.asrows():
+            if len(row) != 5:
+                logging.error("%s - %s", app.name, row)
+            data.append(row)
+    df = pd.DataFrame(data, columns=Application.COLUMNS)
+    df.index += 1
+    df.to_csv(io)
+
 def slurp(excel_file: Path):
     """
     Extracts contact information from the given Excel file.
@@ -185,12 +225,6 @@ def slurp(excel_file: Path):
 
     return Application(excel_file.stem, team)
 
-def _write_report(apps: list[Application]):
-    for app in apps:
-        logging.info("%s:", app.name)
-        for contact in app.team:
-            logging.info("  %s, %s, %s, %s", contact.email, contact.name, contact.phone, contact.role)
-
 def main():
     logging.basicConfig(level=logging.INFO)
 
@@ -202,7 +236,10 @@ def main():
     for excel_file in xlsx_files:
         app = slurp(excel_file)
         apps.append(app)
-    _write_report(apps)
+    output_dir = cwd / OUTPUT_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / f"geoclient-contacts-{timestamp()}.csv"
+    _write_report(apps, output_file)
 
 
 if __name__ == "__main__":
