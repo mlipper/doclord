@@ -35,6 +35,8 @@ _log = logging.getLogger(__name__)
 
 APP_COLUMNS_V1 = ["B", "C", "D", "E"]
 APP_COLUMNS_V2 = ["C", "D", "E", "F"]
+APP_DISPLAY_NAME_V1 = "C8"
+APP_DISPLAY_NAME_V2 = "C34"
 APP_ROWS_V1 = [16, 17, 18, 19, 20]
 APP_ROWS_V2 = [25, 26, 27, 28, 29]
 FORM_V1 = "Geoclient API - v1"
@@ -62,15 +64,17 @@ class Contact:
 @dataclass
 class Application:
     """Container for an application's contact information."""
+    display_name: str
     name: str
     team: list[Contact] = field(default_factory=list)
-    COLUMNS: ClassVar[list[str]] = ["application", "email", "name", "phone", "role"] 
+    COLUMNS: ClassVar[list[str]] = ["display_name", "application", "email", "name", "phone", "role"] 
 
     def asrows(self):
         rows = []
         for c in self.team:
             rows.append(
                 [
+                self.sstrip(self.display_name),
                 self.sstrip(self.name),
                 self.sstrip(c.email),
                 self.sstrip(c.name),
@@ -95,6 +99,15 @@ def _cval(ws: Worksheet, cell: str, default_value=None):
     if v is None:
         return default_value
     return v
+
+def _get_display_name(ws: Worksheet, form: str):
+    """
+    Gets the display name from the Worksheet using the cell address.
+    """
+    if form == FORM_V2:
+        return ws[APP_DISPLAY_NAME_V2].value
+
+    return ws[APP_DISPLAY_NAME_V1].value
 
 def _get_group(ws: Worksheet):
     """
@@ -192,9 +205,9 @@ def _write_report(apps: list[Application], io: Path):
     data = []
     for app in apps:
         #for contact in app.team:
-        #    logging.info("%s, %s, %s, %s, %s", app.name, contact.email, contact.name, contact.phone, contact.role)
+        #    logging.info("%s, %s, %s, %s, %s, %s", app.display_name, app.name, contact.email, contact.name, contact.phone, contact.role)
         for row in app.asrows():
-            if len(row) != 5:
+            if len(row) != 6:
                 logging.error("%s - %s", app.name, row)
             data.append(row)
     df = pd.DataFrame(data, columns=Application.COLUMNS)
@@ -208,6 +221,8 @@ def slurp(excel_file: Path):
     wb = load_workbook(excel_file, True, False, True)
     ws = wb[SHEET_NAME]
 
+
+    display_name = None
     team = None
     if ws[VERSION_CELL].value == FORM_V2:
         sponsor = _get_sponsor(ws)
@@ -217,13 +232,15 @@ def slurp(excel_file: Path):
             team.append(group)
         if sponsor is not None and sponsor.has_info():
             team.append(sponsor)
+        display_name = _get_display_name(ws, FORM_V2)
     elif ws[VERSION_CELL].value == FORM_V1:
         team = _get_team(ws, FORM_V1)
+        display_name = _get_display_name(ws, FORM_V1)
     else:
-        logging.error("Unrecogized form version %s for %s.", ws[VERSION_CELL], excel_file.stem)
+        logging.error("Unrecognized form version %s for %s.", ws[VERSION_CELL], excel_file.stem)
         team = []
 
-    return Application(excel_file.stem, team)
+    return Application(display_name, excel_file.stem, team)
 
 def main():
     logging.basicConfig(level=logging.INFO)
